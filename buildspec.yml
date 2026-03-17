@@ -40,20 +40,7 @@ phases:
       - aws ecs describe-task-definition --task-definition $TASK_DEFINITION_FAMILY > taskdef.json
 
       - echo "Creating new task definition..."
-      - >
-        jq --arg IMAGE "$ECR_URI:$IMAGE_TAG"
-        '.taskDefinition |
-        {
-          family: .family,
-          networkMode: .networkMode,
-          containerDefinitions: (.containerDefinitions | map(.image = $IMAGE)),
-          requiresCompatibilities: .requiresCompatibilities,
-          cpu: .cpu,
-          memory: .memory,
-          executionRoleArn: .executionRoleArn,
-          taskRoleArn: .taskRoleArn
-        }'
-        taskdef.json > new-taskdef.json
+      - jq --arg IMAGE "$ECR_URI:$IMAGE_TAG" '.taskDefinition | {family: .family, networkMode: .networkMode, containerDefinitions: (.containerDefinitions | map(.image = $IMAGE)), requiresCompatibilities: .requiresCompatibilities, cpu: .cpu, memory: .memory, executionRoleArn: .executionRoleArn, taskRoleArn: .taskRoleArn}' taskdef.json > new-taskdef.json
 
       - echo "Registering new task definition..."
       - aws ecs register-task-definition --cli-input-json file://new-taskdef.json > taskdef-output.json
