@@ -1,0 +1,73 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_DEFAULT_REGION: us-east-1
+    ECR_REPOSITORY: demo-dev-backend
+    ECS_CLUSTER: demo-dev
+    ECS_SERVICE: demo-dev-backend
+    TASK_DEFINITION_FAMILY: demo-dev-backend
+
+phases:
+  install:
+    runtime-versions:
+      docker: 20
+    commands:
+      - echo "Install phase"
+
+  pre_build:
+    commands:
+      - echo "Logging in to ECR..."
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - ECR_URI=$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - echo "Image tag: $IMAGE_TAG"
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_URI
+
+  build:
+    commands:
+      - echo "Building Docker image..."
+      - docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
+      - docker tag $ECR_REPOSITORY:$IMAGE_TAG $ECR_URI:$IMAGE_TAG
+
+  post_build:
+    commands:
+      - echo "Pushing image..."
+      - docker push $ECR_URI:$IMAGE_TAG
+
+      - echo "Creating new task definition..."
+
+      # Get existing task definition
+      - aws ecs describe-task-definition --task-definition $TASK_DEFINITION_FAMILY > taskdef.json
+
+      # Replace image with new one
+      - |
+        cat taskdef.json | jq '.taskDefinition | 
+        {
+          family: .family,
+          networkMode: .networkMode,
+          containerDefinitions: (.containerDefinitions | map(.image = "'"$ECR_URI:$IMAGE_TAG"'")),
+          requiresCompatibilities: .requiresCompatibilities,
+          cpu: .cpu,
+          memory: .memory,
+          executionRoleArn: .executionRoleArn,
+          taskRoleArn: .taskRoleArn
+        }' > new-taskdef.json
+
+      # Register new revision
+      - aws ecs register-task-definition --cli-input-json file://new-taskdef.json > taskdef-output.json
+
+      # Extract new revision ARN
+      - TASK_DEF_ARN=$(jq -r '.taskDefinition.taskDefinitionArn' taskdef-output.json)
+      - echo "New Task Definition: $TASK_DEF_ARN"
+
+      # Update ECS service
+      - echo "Updating ECS service..."
+      - aws ecs update-service \
+          --cluster $ECS_CLUSTER \
+          --service $ECS_SERVICE \
+          --task-definition $TASK_DEF_ARN
+
+artifacts:
+  files:
+    - '**/*'
