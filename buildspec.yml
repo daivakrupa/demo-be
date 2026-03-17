@@ -41,18 +41,7 @@ phases:
       - aws ecs describe-task-definition --task-definition $TASK_DEFINITION_FAMILY > taskdef.json
 
       # Replace image with new one
-      - |
-        cat taskdef.json | jq '.taskDefinition | 
-        {
-          family: .family,
-          networkMode: .networkMode,
-          containerDefinitions: (.containerDefinitions | map(.image = "'"$ECR_URI:$IMAGE_TAG"'")),
-          requiresCompatibilities: .requiresCompatibilities,
-          cpu: .cpu,
-          memory: .memory,
-          executionRoleArn: .executionRoleArn,
-          taskRoleArn: .taskRoleArn
-        }' > new-taskdef.json
+      - cat taskdef.json | jq '.taskDefinition | {family: .family, networkMode: .networkMode, containerDefinitions: (.containerDefinitions | map(.image = "'$ECR_URI:$IMAGE_TAG'")), requiresCompatibilities: .requiresCompatibilities, cpu: .cpu, memory: .memory, executionRoleArn: .executionRoleArn, taskRoleArn: .taskRoleArn}' > new-taskdef.json
 
       # Register new revision
       - aws ecs register-task-definition --cli-input-json file://new-taskdef.json > taskdef-output.json
